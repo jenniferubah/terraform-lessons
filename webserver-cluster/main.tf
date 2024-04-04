@@ -3,15 +3,22 @@ provider "aws" {
 }
 
 resource "aws_launch_configuration" "example" {
-  image_id      = "ami-0fb653ca2d3203ac1"
-  instance_type = "t2.micro"
+  image_id        = "ami-0fb653ca2d3203ac1"
+  instance_type   = "t2.micro"
   security_groups = [aws_security_group.instance.id]
 
-  user_data = <<-EOF
-              #!/bin/bash
-              echo "Hello, World" > index.html
-              nohup busybox httpd -f -p ${var.server_port} &
-              EOF
+  #   user_data = <<-EOF
+  #               #!/bin/bash
+  #               echo "Hello, World" > index.html
+  #               nohup busybox httpd -f -p ${var.server_port} &
+  #               EOF
+
+  # Using template to render User Data script
+  user_data = templatefile("user-data.sh", {
+    server_port = var.server_port
+    db_address  = data.terraform_remote_state.db.outputs.address
+    db_port     = data.terraform_remote_state.db.outputs.port
+  })
 
   # Required when using a launch configuration with an auto scaling group.
   lifecycle {
@@ -122,7 +129,7 @@ resource "aws_alb_target_group" "asg" {
 
 resource "aws_alb_listener_rule" "asg" {
   listener_arn = aws_lb_listener.http.arn
-  priority = 100
+  priority     = 100
 
   condition {
     path_pattern {
@@ -131,12 +138,22 @@ resource "aws_alb_listener_rule" "asg" {
   }
 
   action {
-    type = "forward"
+    type             = "forward"
     target_group_arn = aws_alb_target_group.asg.arn
   }
 }
 
 output "alb_dns_name" {
-  value = aws_lb.example.dns_name
+  value       = aws_lb.example.dns_name
   description = "The domain name of the load balancer"
+}
+
+data "terraform_remote_state" "db" {
+  backend = "s3"
+
+  config = {
+    bucket = "jen-terraform-state"
+    key    = "stage/data-stores/mysql/terraform.tfstate"
+    region = "us-east-2"
+  }
 }
